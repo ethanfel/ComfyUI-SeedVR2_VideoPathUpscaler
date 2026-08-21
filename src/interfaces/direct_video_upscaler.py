@@ -143,6 +143,93 @@ def extract_full_audio(
         return {"waveform": waveform, "sample_rate": sample_rate}
 
 
+def mux_audio_into_video(
+    video_path: str,
+    audio: Dict[str, Any],
+    output_path: str,
+) -> None:
+    """Stream-copy H.264 and embed the complete Comfy AUDIO track as AAC."""
+    waveform = audio["waveform"]
+    sample_rate = int(audio["sample_rate"])
+    if not torch.is_tensor(waveform) or sample_rate <= 0:
+        raise ValueError("Audio must contain a tensor waveform and positive sample_rate")
+    if waveform.ndim == 3:
+        if int(waveform.shape[0]) != 1:
+            raise ValueError("Direct-video audio must contain exactly one batch")
+        waveform = waveform[0]
+    elif waveform.ndim == 1:
+        waveform = waveform.unsqueeze(0)
+    if waveform.ndim != 2 or int(waveform.shape[-1]) < 1:
+        raise ValueError("Direct-video audio must be [channels,samples]")
+    channels = int(waveform.shape[0])
+    layouts = {
+        1: "mono",
+        2: "stereo",
+        3: "2.1",
+        4: "quad",
+        5: "5.0",
+        6: "5.1",
+        8: "7.1",
+    }
+    layout = layouts.get(channels)
+    if layout is None:
+        raise ValueError(f"Cannot embed an unsupported {channels}-channel audio layout")
+    samples = (
+        waveform.detach().to(device="cpu", dtype=torch.float32)
+        .clamp_(-1.0, 1.0).contiguous().numpy()
+    )
+
+    source = output = None
+    try:
+        source = av.open(video_path, mode="r")
+        if not source.streams.video:
+            raise ValueError("Direct-video temporary file has no video stream")
+        input_video = source.streams.video[0]
+        output = av.open(
+            output_path,
+            mode="w",
+            options={"movflags": "use_metadata_tags+faststart"},
+        )
+        for key, value in source.metadata.items():
+            output.metadata[str(key)] = str(value)
+        output_video = output.add_stream_from_template(input_video)
+        output_audio = output.add_stream("aac", rate=sample_rate)
+        output_audio.bit_rate = 256_000
+        output_audio.layout = layout
+
+        for packet in source.demux(input_video):
+            if packet.dts is None:
+                continue
+            packet.stream = output_video
+            output.mux(packet)
+
+        for start in range(0, int(samples.shape[-1]), 1024):
+            stop = min(int(samples.shape[-1]), start + 1024)
+            frame = av.AudioFrame.from_ndarray(
+                samples[:, start:stop], format="fltp", layout=layout
+            )
+            frame.sample_rate = sample_rate
+            frame.pts = start
+            frame.time_base = Fraction(1, sample_rate)
+            for packet in output_audio.encode(frame):
+                output.mux(packet)
+        for packet in output_audio.encode():
+            output.mux(packet)
+
+        output.close()
+        output = None
+        source.close()
+        source = None
+    except BaseException:
+        if output is not None:
+            output.close()
+        if source is not None:
+            source.close()
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise
+
+
 class _VideoWriter:
     """Small streaming H.264 writer used to keep the node's output file-backed."""
 
@@ -198,10 +285,16 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
             description=(
                 "Upscales a native ComfyUI VIDEO in bounded chunks. The complete frame sequence "
                 "never becomes an IMAGE tensor in the workflow; the output remains file-backed. "
-                "The source audio is returned once as a complete AUDIO value for a video save node."
+                "Source audio is preserved in the returned VIDEO and is also returned once as AUDIO."
             ),
             inputs=[
-                io.Video.Input("video", tooltip="Native file-backed VIDEO, normally from Load Video."),
+                io.Video.Input(
+                    "video",
+                    tooltip=(
+                        "Native file-backed VIDEO, normally from Load Video or "
+                        "MiniMax H3 Full-Chain Latent Video Adapter."
+                    ),
+                ),
                 io.Custom("SEEDVR2_DIT").Input("dit"),
                 io.Custom("SEEDVR2_VAE").Input("vae"),
                 io.Int.Input("seed", default=42, min=0, max=2**32 - 1, step=1),
@@ -242,7 +335,7 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
                 io.Boolean.Input("enable_debug", default=False, optional=True),
             ],
             outputs=[
-                io.Video.Output(display_name="video", tooltip="File-backed upscaled video without embedded audio."),
+                io.Video.Output(display_name="video", tooltip="File-backed upscaled video with source audio preserved when present."),
                 io.Audio.Output(display_name="audio", tooltip="Full unchunked audio from the active source video window."),
             ],
         )
@@ -278,6 +371,7 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
         temp_dir = folder_paths.get_temp_directory()
         os.makedirs(temp_dir, exist_ok=True)
         output_path = os.path.join(temp_dir, f"seedvr2_direct_{uuid.uuid4().hex}.mp4")
+        silent_path = os.path.join(temp_dir, f"seedvr2_direct_{uuid.uuid4().hex}.silent.mp4")
 
         run_id = uuid.uuid4().hex
         chunk_dit = dict(dit)
@@ -290,7 +384,7 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
             chunk_vae.update(cache_model=True, node_id=f"seedvr2-direct-{run_id}-vae")
 
         debug = Debug(enabled=enable_debug)
-        writer = _VideoWriter(output_path, frame_rate, temporary_video_crf)
+        writer = _VideoWriter(silent_path, frame_rate, temporary_video_crf)
         previous_tail = None
         frames_written = 0
         chunk_index = 0
@@ -344,11 +438,17 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
 
             # Decode audio once, after model processing, so it is not held in RAM for the run.
             audio = extract_full_audio(source, start_time, duration)
+            if audio is None:
+                os.replace(silent_path, output_path)
+            else:
+                mux_audio_into_video(silent_path, audio, output_path)
+                os.remove(silent_path)
             return io.NodeOutput(InputImpl.VideoFromFile(output_path), audio)
         except BaseException:
             writer.close()
-            if os.path.exists(output_path):
-                os.remove(output_path)
+            for path in (silent_path, output_path):
+                if os.path.exists(path):
+                    os.remove(path)
             raise
         finally:
             cache = get_global_cache()
@@ -361,5 +461,6 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
 __all__ = [
     "SeedVR2DirectVideoUpscaler",
     "extract_full_audio",
+    "mux_audio_into_video",
     "stream_video_frame_chunks",
 ]

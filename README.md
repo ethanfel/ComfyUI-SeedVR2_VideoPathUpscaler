@@ -701,8 +701,8 @@ Use this node when the source is a native ComfyUI `VIDEO` and the full frame seq
 - **video**: Connect a native `Load Video` output. File inputs remain file-backed.
 - **chunk_size**: Maximum number of newly decoded frames held in RAM at once.
 - **chunk_overlap**: Raw context frames carried between file chunks; context output is discarded so duration is unchanged.
-- **video output**: File-backed H.264 video suitable for a native or compatible video save node. Audio is not embedded in this intermediate.
-- **audio output**: The complete, unchunked audio for the active source trim window. Connect it to the audio input of the final video save/combine node.
+- **video output**: File-backed H.264 video suitable for a native or compatible video save node. Source audio is embedded automatically when the input has audio, so this output can connect directly to core `Save Video`.
+- **audio output**: The same complete, unchunked audio for the active source trim window, retained as a separate output for compatibility and alternate muxing workflows.
 
 The model is cached internally between chunks even when loader caching is disabled, then released after the direct-video run. This avoids reloading weights for every chunk. The temporary video uses the source frame rate and configurable CRF; RGB is currently supported, while alpha is not preserved by the H.264 intermediate.
 

@@ -1,6 +1,9 @@
 .git/*
 **/__pycache__/
 tests/
+!tests/
+tests/*
+!tests/_direct_video_audio_unit_test.py
 .vscode/
 .cursor/
 benchmark/
