@@ -718,6 +718,7 @@ This node detects the selected GPU at execution time and emits complete `dit`, `
 - **maximum_throughput**: Favors smaller native quantized models and larger throughput batches.
 - **target_resolution**: The requested short-edge output resolution; batch and tiling recommendations scale with its pixel cost.
 - **reserve_vram_gb**: Memory deliberately left available for ComfyUI and other nodes.
+- **batch_size_override**: Set a known-good 4n+1 batch size manually; `0` retains automatic sizing.
 - **enable_torch_compile**: Optional because compilation has a large first-run cost and is most useful for repeated workloads.
 - **report output**: Shows the detected GPU, usable VRAM, selected model, batch/chunk sizes, cache residency, and attention backend.
 
@@ -725,9 +726,9 @@ Example balanced recommendations at 1080p with 4 GB reserved:
 
 | GPU VRAM | Model | Batch | Model cache |
 |---:|---|---:|---|
-| 32 GB Blackwell | 7B INT8 ConvRot | 9 | GPU resident |
-| 48 GB | 7B FP16 | 17 | GPU resident |
-| 96 GB Blackwell | 7B FP16 | 33 | GPU resident |
+| 32 GB Blackwell | 7B INT8 ConvRot | 37 | GPU resident |
+| 48 GB | 7B FP16 | 57 | GPU resident |
+| 96 GB Blackwell | 7B FP16 | 169 | GPU resident |
 
 These are starting points, not fixed hardware guarantees: free VRAM at execution time, resolution, clip length, selected profile, and kernel availability all affect the emitted configuration.
 

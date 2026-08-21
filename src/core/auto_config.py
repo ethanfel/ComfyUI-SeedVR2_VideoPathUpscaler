@@ -65,6 +65,7 @@ def recommend_seedvr2_config(
     profile: str = "balanced",
     reserve_vram_gb: float = 4.0,
     frame_count: Optional[int] = None,
+    batch_size_override: Optional[int] = None,
     kitchen_attention_available: bool = False,
     enable_torch_compile: bool = False,
 ) -> Dict[str, Any]:
@@ -84,13 +85,21 @@ def recommend_seedvr2_config(
 
     resolution_scale = max(0.25, (target_resolution / 1080.0) ** 2)
     is_7b = "7b" in model
-    activation_per_frame = (1.35 if is_7b else 0.80) * resolution_scale
+    # Calibrated against the optimized native pipeline: a 7B FP16 1080p run
+    # fits 165 frames at roughly 74% of a 95 GB RTX PRO 6000. Keep a sizeable
+    # safety margin over that observed per-frame cost while avoiding the old,
+    # overly conservative 33-frame ceiling.
+    activation_per_frame = (0.42 if is_7b else 0.28) * resolution_scale
     activation_budget = max(1.0, budget_gb - model_memory - 3.0)
     estimated_frames = max(1, int(activation_budget / activation_per_frame))
-    batch_cap = 33 if profile != "maximum_throughput" else 41
+    batch_cap = 257 if profile != "maximum_throughput" else 385
     batch_size = _floor_4n_plus_1(min(estimated_frames, batch_cap))
 
-    if frame_count and frame_count > 0 and frame_count < batch_size:
+    if batch_size_override is not None:
+        if batch_size_override < 1 or (batch_size_override - 1) % 4 != 0:
+            raise ValueError("batch_size_override must follow 4n+1: 1, 5, 9, 13, ...")
+        batch_size = batch_size_override
+    elif frame_count and frame_count > 0 and frame_count < batch_size:
         batch_size = min(batch_size, _ceil_4n_plus_1(frame_count))
 
     use_tiling = (
@@ -181,6 +190,7 @@ def recommend_seedvr2_config(
             "blackwell": blackwell,
             "keep_models_on_gpu": keep_models_on_gpu,
         },
+        "batch_size_overridden": batch_size_override is not None,
         "model_reason": model_reason,
     }
 

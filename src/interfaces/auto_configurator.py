@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import av
 import torch
 from comfy_api.latest import Input, io
 from comfy_execution.utils import get_executing_context
@@ -58,6 +59,57 @@ def _kitchen_attention_available(device: torch.device) -> bool:
         return COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE
 
 
+def _reliable_video_frame_count(video: Input.Video) -> Optional[int]:
+    """Return an active frame count, correcting false one-frame VIDEO metadata."""
+    reported_count = None
+    try:
+        reported_count = int(video.get_frame_count())
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+        pass
+
+    # Avoid opening the stream when the VIDEO implementation already supplied
+    # a useful count. Some file-backed implementations return 1 when their
+    # container does not expose nb_frames and duration=0 means "until EOF".
+    if reported_count is not None and reported_count > 1:
+        return reported_count
+
+    try:
+        source = video.get_stream_source()
+        start_time, requested_duration = video.get_active_trim_window()
+        with av.open(source, mode="r") as container:
+            if not container.streams.video:
+                return reported_count
+            stream = container.streams.video[0]
+            frame_rate = stream.average_rate or video.get_frame_rate()
+            frame_rate = float(frame_rate)
+            if frame_rate <= 0:
+                return reported_count
+
+            raw_duration = None
+            if stream.duration is not None and stream.time_base is not None:
+                raw_duration = float(stream.duration * stream.time_base)
+            elif container.duration is not None:
+                raw_duration = float(container.duration / av.time_base)
+            elif stream.frames and stream.frames > 0:
+                raw_duration = float(stream.frames / frame_rate)
+
+            if raw_duration is None:
+                return reported_count
+            remaining_duration = max(0.0, raw_duration - float(start_time))
+            active_duration = (
+                min(float(requested_duration), remaining_duration)
+                if requested_duration and requested_duration > 0
+                else remaining_duration
+            )
+            estimated_count = int(round(active_duration * frame_rate))
+            if estimated_count > 0:
+                return estimated_count
+    except (AttributeError, av.FFmpegError, OSError, RuntimeError, TypeError, ValueError):
+        pass
+
+    return reported_count
+
+
 class SeedVR2AutoConfigurator(io.ComfyNode):
     """Detect hardware and emit complete model plus runtime configurations."""
 
@@ -88,6 +140,13 @@ class SeedVR2AutoConfigurator(io.ComfyNode):
                     "reserve_vram_gb", default=4.0, min=0.0, max=64.0, step=0.5,
                     tooltip="VRAM kept free for ComfyUI, previews, and other nodes.",
                 ),
+                io.Int.Input(
+                    "batch_size_override", default=0, min=0, max=16381, step=1, optional=True,
+                    tooltip=(
+                        "Override the recommended temporal batch size. 0 keeps automatic sizing. "
+                        "Non-zero values must follow 4n+1: 1, 5, 9, 13, ..."
+                    ),
+                ),
                 io.Boolean.Input(
                     "enable_torch_compile", default=False, optional=True,
                     tooltip="Enable only for repeated runs; the first run has significant compilation cost.",
@@ -112,6 +171,7 @@ class SeedVR2AutoConfigurator(io.ComfyNode):
         profile: str,
         target_resolution: int,
         reserve_vram_gb: float,
+        batch_size_override: int = 0,
         enable_torch_compile: bool = False,
         video: Optional[Input.Video] = None,
     ) -> io.NodeOutput:
@@ -128,10 +188,7 @@ class SeedVR2AutoConfigurator(io.ComfyNode):
             )
         frame_count = None
         if video is not None:
-            try:
-                frame_count = video.get_frame_count()
-            except Exception:
-                frame_count = None
+            frame_count = _reliable_video_frame_count(video)
 
         recommendation = recommend_seedvr2_config(
             total_vram_gb=total_gb,
@@ -141,6 +198,7 @@ class SeedVR2AutoConfigurator(io.ComfyNode):
             profile=profile,
             reserve_vram_gb=reserve_vram_gb,
             frame_count=frame_count,
+            batch_size_override=batch_size_override or None,
             kitchen_attention_available=_kitchen_attention_available(selected_device),
             enable_torch_compile=enable_torch_compile,
         )
@@ -160,10 +218,14 @@ class SeedVR2AutoConfigurator(io.ComfyNode):
         hardware = recommendation["hardware"]
         residency = "GPU-resident cache" if hardware["keep_models_on_gpu"] else "CPU model cache"
         chunk_description = "disabled" if settings["chunk_size"] == 0 else str(settings["chunk_size"])
+        frame_description = f" | frames {frame_count}" if frame_count is not None else ""
+        batch_description = str(settings["batch_size"])
+        if recommendation["batch_size_overridden"]:
+            batch_description += " (override)"
         report = (
             f"{gpu_name} | {total_gb:.1f} GB total, {free_gb:.1f} GB free, "
             f"{hardware['budget_gb']:.1f} GB usable | {dit['model']} | "
-            f"batch {settings['batch_size']} | chunks {chunk_description} | "
+            f"batch {batch_description} | chunks {chunk_description}{frame_description} | "
             f"{residency} | attention {dit['attention_mode']} | "
             f"{recommendation['model_reason']}"
         )
