@@ -20,6 +20,17 @@ def _device_str(device: Union[torch.device, str]) -> str:
     return 'MPS' if s.startswith('MPS') else s
 
 
+def _resolve_model_cleanup_device(
+    param_device: torch.device,
+    offload_device: Optional[Union[torch.device, str]],
+    cache_model: bool,
+) -> torch.device:
+    """Resolve where model parameters should live after a generation phase."""
+    if offload_device is None or offload_device == 'none':
+        return param_device if cache_model else torch.device('cpu')
+    return torch.device(offload_device)
+
+
 def is_mps_available() -> bool:
     """Check if MPS (Apple Metal) backend is available."""
     return hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
@@ -1016,7 +1027,8 @@ def cleanup_dit(runner: Any, debug: Optional['Debug'] = None, cache_model: bool 
     Args:
         runner: Runner instance containing DiT model
         debug: Debug instance for logging
-        cache_model: If True, move DiT to offload_device; if False, delete completely
+        cache_model: If True, keep DiT on its inference device when offload_device
+            is unset, otherwise move it to offload_device; if False, delete completely
     """
     if not runner or not hasattr(runner, 'dit'):
         return
@@ -1055,12 +1067,17 @@ def cleanup_dit(runner: Any, debug: Optional['Debug'] = None, cache_model: bool 
                 if debug:
                     debug.log("DiT on MPS - skipping CPU movement before deletion", category="cleanup")
             else:
-                offload_target = getattr(runner, '_dit_offload_device', None)
-                if offload_target is None or offload_target == 'none':
-                    offload_target = torch.device('cpu')
+                offload_target = _resolve_model_cleanup_device(
+                    param_device,
+                    getattr(runner, '_dit_offload_device', None),
+                    cache_model,
+                )
                 reason = "model caching" if cache_model else "releasing GPU memory"
-                manage_model_device(model=runner.dit, target_device=offload_target, model_name="DiT", 
-                                   debug=debug, reason=reason, runner=runner)
+                if torch.device(offload_target) != param_device:
+                    manage_model_device(model=runner.dit, target_device=offload_target, model_name="DiT",
+                                       debug=debug, reason=reason, runner=runner)
+                elif debug and cache_model:
+                    debug.log(f"DiT cached on {param_device}", category="cache")
         elif param_device.type == 'meta' and debug:
             debug.log("DiT on meta device - keeping structure for cache", category="cleanup")
     except StopIteration:
@@ -1105,7 +1122,8 @@ def cleanup_vae(runner: Any, debug: Optional['Debug'] = None, cache_model: bool 
     Args:
         runner: Runner instance containing VAE model
         debug: Debug instance for logging
-        cache_model: If True, move VAE to offload_device; if False, delete completely
+        cache_model: If True, keep VAE on its inference device when offload_device
+            is unset, otherwise move it to offload_device; if False, delete completely
     """
     if not runner or not hasattr(runner, 'vae'):
         return
@@ -1133,12 +1151,17 @@ def cleanup_vae(runner: Any, debug: Optional['Debug'] = None, cache_model: bool 
                 if debug:
                     debug.log("VAE on MPS - skipping CPU movement before deletion", category="cleanup")
             else:
-                offload_target = getattr(runner, '_vae_offload_device', None)
-                if offload_target is None or offload_target == 'none':
-                    offload_target = torch.device('cpu')
+                offload_target = _resolve_model_cleanup_device(
+                    param_device,
+                    getattr(runner, '_vae_offload_device', None),
+                    cache_model,
+                )
                 reason = "model caching" if cache_model else "releasing GPU memory"
-                manage_model_device(model=runner.vae, target_device=offload_target, model_name="VAE", 
-                                   debug=debug, reason=reason, runner=runner)
+                if torch.device(offload_target) != param_device:
+                    manage_model_device(model=runner.vae, target_device=offload_target, model_name="VAE",
+                                       debug=debug, reason=reason, runner=runner)
+                elif debug and cache_model:
+                    debug.log(f"VAE cached on {param_device}", category="cache")
         elif param_device.type == 'meta' and debug:
             debug.log("VAE on meta device - keeping structure for cache", category="cleanup")
     except StopIteration:
@@ -1171,8 +1194,8 @@ def complete_cleanup(runner: Any, debug: Optional['Debug'] = None, dit_cache: bo
     Args:
         runner: Runner instance to clean up
         debug: Debug instance for logging
-        dit_cache: If True, preserve DiT model on offload_device for future runs
-        vae_cache: If True, preserve VAE model on offload_device for future runs
+        dit_cache: If True, preserve DiT on its configured cache device for future runs
+        vae_cache: If True, preserve VAE on its configured cache device for future runs
         
     Behavior:
         - Can cache DiT and VAE independently for flexible memory management

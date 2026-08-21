@@ -215,6 +215,14 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
                         "Useful for troubleshooting errors and performance issues."
                     )
                 ),
+                io.Custom("SEEDVR2_AUTO_SETTINGS").Input(
+                    "auto_settings",
+                    optional=True,
+                    tooltip=(
+                        "Optional runtime settings from SeedVR2 Auto Configurator. When connected, "
+                        "the configurator overrides the corresponding controls above."
+                    ),
+                ),
             ],
             outputs=[
                 io.Image.Output(
@@ -229,7 +237,8 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
                 uniform_batch_size: bool = False, temporal_overlap: int = 0, prepend_frames: int = 0,
                 color_correction: str = "wavelet", input_noise_scale: float = 0.0,
                 latent_noise_scale: float = 0.0, offload_device: str = "none", 
-                enable_debug: bool = False) -> io.NodeOutput:
+                enable_debug: bool = False,
+                auto_settings: Optional[Dict[str, Any]] = None) -> io.NodeOutput:
         """
         Execute SeedVR2 video upscaling with progress reporting
         
@@ -261,6 +270,18 @@ class SeedVR2VideoUpscaler(io.ComfyNode):
             ValueError: If model files cannot be downloaded or configuration is invalid
             RuntimeError: If generation fails
         """
+        if auto_settings:
+            resolution = int(auto_settings.get("resolution", resolution))
+            max_resolution = int(auto_settings.get("max_resolution", max_resolution))
+            batch_size = int(auto_settings.get("batch_size", batch_size))
+            uniform_batch_size = bool(auto_settings.get("uniform_batch_size", uniform_batch_size))
+            temporal_overlap = int(auto_settings.get("temporal_overlap", temporal_overlap))
+            prepend_frames = int(auto_settings.get("prepend_frames", prepend_frames))
+            color_correction = str(auto_settings.get("color_correction", color_correction))
+            input_noise_scale = float(auto_settings.get("input_noise_scale", input_noise_scale))
+            latent_noise_scale = float(auto_settings.get("latent_noise_scale", latent_noise_scale))
+            offload_device = str(auto_settings.get("offload_device", offload_device))
+
         # Initialize debug (stateless - stored in local variable)
         debug = Debug(enabled=enable_debug)
         

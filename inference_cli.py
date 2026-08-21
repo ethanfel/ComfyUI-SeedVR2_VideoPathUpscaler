@@ -1470,10 +1470,10 @@ Examples:
     cache_group = parser.add_argument_group('Model caching (batch processing)')
     cache_group.add_argument("--cache_dit", action="store_true",
                         help="Keep DiT model in memory between generations. Works with single-GPU directory processing "
-                             "or multi-GPU streaming (--chunk_size). Requires --dit_offload_device")
+                             "or multi-GPU streaming (--chunk_size). With no offload device it stays on the inference GPU.")
     cache_group.add_argument("--cache_vae", action="store_true",
                         help="Keep VAE model in memory between generations. Works with single-GPU directory processing "
-                             "or multi-GPU streaming (--chunk_size). Requires --vae_offload_device")
+                             "or multi-GPU streaming (--chunk_size). With no offload device it stays on the inference GPU.")
     
     # Debugging
     debug_group = parser.add_argument_group('Debugging')
@@ -1538,20 +1538,18 @@ def main() -> None:
                  level="ERROR", category="setup", force=True)
         sys.exit(1)
     
-    # Inform about caching defaults
+    # Inform about GPU-resident caching defaults
     if args.cache_dit and args.dit_offload_device == "none":
-        offload_target = "system memory (CPU)" if get_gpu_backend() != "mps" else "unified memory"
         debug.log(
-            f"DiT caching enabled: Using default {offload_target} for offload. "
-            "Set --dit_offload_device explicitly to use a different device.",
+            "DiT caching enabled with no offload device: keeping the model on its inference device. "
+            "Set --dit_offload_device=cpu to release its inference-device VRAM between generations.",
             category="cache", force=True
         )
     
     if args.cache_vae and args.vae_offload_device == "none":
-        offload_target = "system memory (CPU)" if get_gpu_backend() != "mps" else "unified memory"
         debug.log(
-            f"VAE caching enabled: Using default {offload_target} for offload. "
-            "Set --vae_offload_device explicitly to use a different device.",
+            "VAE caching enabled with no offload device: keeping the model on its inference device. "
+            "Set --vae_offload_device=cpu to release its inference-device VRAM between generations.",
             category="cache", force=True
         )
 

@@ -41,6 +41,8 @@ We're actively working on improvements and new features. To stay informed:
 - **Native ComfyUI quantized models** - Added official SeedVR2 INT8 ConvRot and NVFP4 safetensors, including 3B, 7B, and sharp variants
 - **Comfy-Kitchen INT8 attention** - Added a hardware-gated `comfy_kitchen_int8` backend with automatic SDPA fallback
 - **Direct VIDEO pipeline** - Added a file-backed, memory-bounded video node that returns the upscaled VIDEO and the complete source AUDIO track separately
+- **Hardware Auto Configurator** - Added runtime GPU/VRAM detection for model precision, attention, batching, tiling, offload, caching, and direct-video chunk settings
+- **GPU-resident model cache** - `cache_model` with `offload_device=none` now keeps models on the inference GPU for high-VRAM systems
 
 **2025.12.24 - Version 2.5.24**
 
@@ -333,7 +335,7 @@ We're actively working on improvements and new features. To stay informed:
 - **Configurable Resolution Limits**: Set target and maximum resolutions with automatic aspect ratio preservation
 
 ### Workflow Features
-- **ComfyUI Integration**: Five dedicated nodes, including tensor-based and file-backed video paths
+- **ComfyUI Integration**: Six dedicated nodes, including tensor-based and file-backed video paths plus hardware auto-configuration
 - **Standalone CLI**: Command-line interface for batch processing and automation
 - **Debug Logging**: Comprehensive debug mode with memory tracking, timing information, and processing details
 - **Progress Reporting**: Real-time progress updates during processing
@@ -424,7 +426,7 @@ For reference, here's the original tutorial covering the initial release:
 
 ### Node Setup
 
-SeedVR2 uses a modular node architecture with five specialized nodes:
+SeedVR2 uses a modular node architecture with six specialized nodes:
 
 #### 1. SeedVR2 (Down)Load DiT Model
 
@@ -457,9 +459,9 @@ Configure the DiT (Diffusion Transformer) model for video upscaling.
   - `cpu`: Offload to system RAM (reduces VRAM)
   - `cuda:X`: Offload to another GPU (good balance if available)
 
-- **cache_model**: Keep DiT model loaded on offload_device between workflow runs
-  - Useful for batch processing to avoid repeated loading
-  - Requires offload_device to be set
+- **cache_model**: Keep the DiT model loaded between workflow runs
+  - With `offload_device=none`, the model remains on the inference GPU for maximum speed
+  - Select `cpu` or another GPU to reduce inference-device VRAM usage
 
 - **blocks_to_swap**: BlockSwap memory optimization
   - `0`: Disabled (default)
@@ -524,8 +526,9 @@ Configure the VAE (Variational Autoencoder) model for encoding/decoding video fr
   - `cpu`: Offload to system RAM (reduces VRAM)
   - `cuda:X`: Offload to another GPU (good balance if available)
 
-- **cache_model**: Keep VAE model loaded on offload_device between workflow runs
-  - Requires offload_device to be set
+- **cache_model**: Keep the VAE loaded between workflow runs
+  - With `offload_device=none`, the VAE remains on the inference GPU
+  - Select `cpu` or another GPU to reduce inference-device VRAM usage
 
 - **encode_tiled**: Enable tiled encoding to reduce VRAM usage during encoding phase
   - Enable if you see OOM errors during the "Encoding" phase in debug logs
@@ -699,12 +702,45 @@ Main upscaling node that processes video frames using DiT and VAE models.
 Use this node when the source is a native ComfyUI `VIDEO` and the full frame sequence is too large to pass through the workflow as an `IMAGE` tensor.
 
 - **video**: Connect a native `Load Video` output. File inputs remain file-backed.
-- **chunk_size**: Maximum number of newly decoded frames held in RAM at once.
+- **chunk_size**: Maximum number of newly decoded frames held in RAM at once. Set it to `0` to disable file chunking and process the complete active video in one pass.
 - **chunk_overlap**: Raw context frames carried between file chunks; context output is discarded so duration is unchanged.
 - **video output**: File-backed H.264 video suitable for a native or compatible video save node. Source audio is embedded automatically when the input has audio, so this output can connect directly to core `Save Video`.
 - **audio output**: The same complete, unchunked audio for the active source trim window, retained as a separate output for compatibility and alternate muxing workflows.
 
-The model is cached internally between chunks even when loader caching is disabled, then released after the direct-video run. This avoids reloading weights for every chunk. The temporary video uses the source frame rate and configurable CRF; RGB is currently supported, while alpha is not preserved by the H.264 intermediate.
+The model is cached internally between chunks even when loader caching is disabled, then released after the direct-video run. Configurations that explicitly enable model caching can instead retain the models across runs, including directly on high-VRAM GPUs. The temporary video uses the source frame rate and configurable CRF; RGB is currently supported, while alpha is not preserved by the H.264 intermediate.
+
+#### 6. SeedVR2 Auto Configurator
+
+This node detects the selected GPU at execution time and emits complete `dit`, `vae`, and `auto_settings` configurations. Connect those three outputs to either SeedVR2 upscaler. Connecting the optional native `VIDEO` input also lets it disable unnecessary chunking for short clips.
+
+- **balanced**: Favors 7B quality while preserving activation headroom.
+- **maximum_quality**: Selects the highest-fidelity model that safely fits.
+- **maximum_throughput**: Favors smaller native quantized models and larger throughput batches.
+- **target_resolution**: The requested short-edge output resolution; batch and tiling recommendations scale with its pixel cost.
+- **reserve_vram_gb**: Memory deliberately left available for ComfyUI and other nodes.
+- **enable_torch_compile**: Optional because compilation has a large first-run cost and is most useful for repeated workloads.
+- **report output**: Shows the detected GPU, usable VRAM, selected model, batch/chunk sizes, cache residency, and attention backend.
+
+Example balanced recommendations at 1080p with 4 GB reserved:
+
+| GPU VRAM | Model | Batch | Model cache |
+|---:|---|---:|---|
+| 32 GB Blackwell | 7B INT8 ConvRot | 9 | GPU resident |
+| 48 GB | 7B FP16 | 17 | GPU resident |
+| 96 GB Blackwell | 7B FP16 | 33 | GPU resident |
+
+These are starting points, not fixed hardware guarantees: free VRAM at execution time, resolution, clip length, selected profile, and kernel availability all affect the emitted configuration.
+
+**Automatic direct-video workflow:**
+
+```text
+Load Video ─┬─→ SeedVR2 Auto Configurator ─┬─ dit ────────────┐
+            │                              ├─ vae ────────────┤
+            │                              └─ auto_settings ──┤
+            └──────────────────────────────── video ──────────┤
+                                                              ↓
+                                              Direct Video Upscaler
+```
 
 ### Typical Workflow Setup
 
@@ -965,8 +1001,8 @@ python inference_cli.py media_folder/ \
 - `--compile_dynamo_recompile_limit`: Max recompilation attempts before fallback (default: 128)
 
 **Model Caching (batch processing):**
-- `--cache_dit`: Keep DiT model in memory between generations. Works with single-GPU directory processing or multi-GPU streaming (`--chunk_size`). Requires `--dit_offload_device`
-- `--cache_vae`: Keep VAE model in memory between generations. Works with single-GPU directory processing or multi-GPU streaming (`--chunk_size`). Requires `--vae_offload_device`
+- `--cache_dit`: Keep the DiT in memory between generations. With no offload device it remains on the inference GPU; set `--dit_offload_device cpu` to cache it in system RAM.
+- `--cache_vae`: Keep the VAE in memory between generations. With no offload device it remains on the inference GPU; set `--vae_offload_device cpu` to cache it in system RAM.
 
 **Multi-GPU:**
 - `--cuda_device`: CUDA device id(s). Single id (e.g., '0') or comma-separated list '0,1' for multi-GPU

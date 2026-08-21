@@ -69,7 +69,7 @@ def stream_video_frame_chunks(
             if rotation:
                 array = np.rot90(array, k=int(round(rotation / 90)), axes=(0, 1)).copy()
             frames.append(torch.from_numpy(array))
-            if len(frames) == chunk_size:
+            if chunk_size > 0 and len(frames) == chunk_size:
                 yield torch.stack(frames).to(dtype=torch.float32).div_(255.0)
                 frames.clear()
 
@@ -292,47 +292,134 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
                     "video",
                     tooltip=(
                         "Native file-backed VIDEO, normally from Load Video or "
-                        "MiniMax H3 Full-Chain Latent Video Adapter."
+                        "MiniMax H3 Full-Chain Latent Video Adapter. Frames are decoded only "
+                        "as needed, so the full clip does not become a ComfyUI IMAGE tensor."
                     ),
                 ),
-                io.Custom("SEEDVR2_DIT").Input("dit"),
-                io.Custom("SEEDVR2_VAE").Input("vae"),
-                io.Int.Input("seed", default=42, min=0, max=2**32 - 1, step=1),
-                io.Int.Input("resolution", default=1080, min=16, max=16384, step=2),
-                io.Int.Input("max_resolution", default=0, min=0, max=16384, step=2),
-                io.Int.Input(
-                    "batch_size", default=5, min=1, max=16384, step=4,
-                    tooltip="SeedVR2 temporal batch size; values following 4n+1 are recommended.",
+                io.Custom("SEEDVR2_DIT").Input(
+                    "dit",
+                    tooltip="DiT model configuration from a SeedVR2 model loader or Auto Configurator.",
+                ),
+                io.Custom("SEEDVR2_VAE").Input(
+                    "vae",
+                    tooltip="VAE model configuration from a SeedVR2 model loader or Auto Configurator.",
                 ),
                 io.Int.Input(
-                    "chunk_size", default=21, min=1, max=4096, step=1,
-                    tooltip="Maximum source frames decoded and held in RAM at once.",
+                    "seed", default=42, min=0, max=2**32 - 1, step=1,
+                    tooltip=(
+                        "Random seed for reproducible generation (default: 42).\n"
+                        "The same seed and inputs produce the same output."
+                    ),
+                ),
+                io.Int.Input(
+                    "resolution", default=1080, min=16, max=16384, step=2,
+                    tooltip=(
+                        "Target resolution for the shortest edge in pixels (default: 1080).\n"
+                        "The input aspect ratio is preserved automatically."
+                    ),
+                ),
+                io.Int.Input(
+                    "max_resolution", default=0, min=0, max=16384, step=2,
+                    tooltip=(
+                        "Maximum resolution of either output dimension (default: 0, no limit).\n"
+                        "Useful for limiting VRAM use with extreme aspect ratios."
+                    ),
+                ),
+                io.Int.Input(
+                    "batch_size", default=5, min=1, max=16384, step=4,
+                    tooltip=(
+                        "Frames processed together by SeedVR2 (default: 5).\n"
+                        "Use the 4n+1 pattern: 1, 5, 9, 13, 17, 21, ...\n"
+                        "Higher values generally improve temporal consistency and speed but use more VRAM."
+                    ),
+                ),
+                io.Int.Input(
+                    "chunk_size", default=21, min=0, max=4096, step=1,
+                    tooltip=(
+                        "Maximum source frames decoded and held in RAM at once. "
+                        "Set to 0 to disable file chunking and process the complete active video at once."
+                    ),
                 ),
                 io.Int.Input(
                     "chunk_overlap", default=2, min=0, max=32, step=1, optional=True,
-                    tooltip="Raw context frames carried from the prior file chunk and removed from output.",
+                    tooltip=(
+                        "Raw context frames carried from the previous file chunk (default: 2).\n"
+                        "These context frames are removed from the output, so duration is unchanged."
+                    ),
                 ),
-                io.Boolean.Input("uniform_batch_size", default=False, optional=True),
-                io.Int.Input("temporal_overlap", default=0, min=0, max=16, step=1, optional=True),
-                io.Int.Input("prepend_frames", default=0, min=0, max=32, step=1, optional=True),
+                io.Boolean.Input(
+                    "uniform_batch_size", default=False, optional=True,
+                    tooltip=(
+                        "Pad the final model batch to batch_size (default: False).\n"
+                        "This adds compute but can prevent artifacts from a very small final batch."
+                    ),
+                ),
+                io.Int.Input(
+                    "temporal_overlap", default=0, min=0, max=16, step=1, optional=True,
+                    tooltip=(
+                        "Overlapping frames between consecutive model batches (default: 0).\n"
+                        "Values from 1 to 4 can improve consistency across batch boundaries."
+                    ),
+                ),
+                io.Int.Input(
+                    "prepend_frames", default=0, min=0, max=32, step=1, optional=True,
+                    tooltip=(
+                        "Frames mirrored before the beginning of the video (default: 0).\n"
+                        "This can reduce start-of-video artifacts; added frames are removed from the result."
+                    ),
+                ),
                 io.Combo.Input(
                     "color_correction",
                     options=["lab", "wavelet", "wavelet_adaptive", "hsv", "adain", "none"],
                     default="lab",
+                    tooltip=(
+                        "Correct output color shifts to resemble the source (default: lab).\n"
+                        "LAB is recommended; choose none to preserve the model output unchanged."
+                    ),
                 ),
-                io.Float.Input("input_noise_scale", default=0.0, min=0.0, max=1.0, step=0.001, optional=True),
-                io.Float.Input("latent_noise_scale", default=0.0, min=0.0, max=1.0, step=0.001, optional=True),
+                io.Float.Input(
+                    "input_noise_scale", default=0.0, min=0.0, max=1.0, step=0.001, optional=True,
+                    tooltip=(
+                        "Noise added to source frames before encoding (default: 0, disabled).\n"
+                        "Small values can help with some input artifacts."
+                    ),
+                ),
+                io.Float.Input(
+                    "latent_noise_scale", default=0.0, min=0.0, max=1.0, step=0.001, optional=True,
+                    tooltip=(
+                        "Noise added in latent space during diffusion (default: 0, disabled).\n"
+                        "This can soften details when input noise is not sufficient."
+                    ),
+                ),
                 io.Combo.Input(
                     "offload_device",
                     options=get_device_list(include_none=True, include_cpu=True),
                     default="cpu",
                     optional=True,
+                    tooltip=(
+                        "Device for intermediate tensors between processing phases (default: cpu).\n"
+                        "Use none to retain tensors on the inference GPU for maximum speed and VRAM use."
+                    ),
                 ),
                 io.Int.Input(
                     "temporary_video_crf", default=18, min=0, max=51, step=1, optional=True,
                     tooltip="H.264 quality of the file-backed intermediate; lower is higher quality.",
                 ),
-                io.Boolean.Input("enable_debug", default=False, optional=True),
+                io.Boolean.Input(
+                    "enable_debug", default=False, optional=True,
+                    tooltip=(
+                        "Enable detailed memory, timing, and processing logs.\n"
+                        "Useful when diagnosing errors or tuning performance."
+                    ),
+                ),
+                io.Custom("SEEDVR2_AUTO_SETTINGS").Input(
+                    "auto_settings",
+                    optional=True,
+                    tooltip=(
+                        "Optional runtime settings from SeedVR2 Auto Configurator. When connected, "
+                        "the configurator overrides the corresponding controls above."
+                    ),
+                ),
             ],
             outputs=[
                 io.Video.Output(display_name="video", tooltip="File-backed upscaled video with source audio preserved when present."),
@@ -361,8 +448,26 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
         offload_device: str = "cpu",
         temporary_video_crf: int = 18,
         enable_debug: bool = False,
+        auto_settings: Optional[Dict[str, Any]] = None,
     ) -> io.NodeOutput:
-        if chunk_overlap >= chunk_size:
+        if auto_settings:
+            resolution = int(auto_settings.get("resolution", resolution))
+            max_resolution = int(auto_settings.get("max_resolution", max_resolution))
+            batch_size = int(auto_settings.get("batch_size", batch_size))
+            chunk_size = int(auto_settings.get("chunk_size", chunk_size))
+            chunk_overlap = int(auto_settings.get("chunk_overlap", chunk_overlap))
+            uniform_batch_size = bool(auto_settings.get("uniform_batch_size", uniform_batch_size))
+            temporal_overlap = int(auto_settings.get("temporal_overlap", temporal_overlap))
+            prepend_frames = int(auto_settings.get("prepend_frames", prepend_frames))
+            color_correction = str(auto_settings.get("color_correction", color_correction))
+            input_noise_scale = float(auto_settings.get("input_noise_scale", input_noise_scale))
+            latent_noise_scale = float(auto_settings.get("latent_noise_scale", latent_noise_scale))
+            offload_device = str(auto_settings.get("offload_device", offload_device))
+            temporary_video_crf = int(
+                auto_settings.get("temporary_video_crf", temporary_video_crf)
+            )
+
+        if chunk_size > 0 and chunk_overlap >= chunk_size:
             raise ValueError("chunk_overlap must be smaller than chunk_size")
 
         source = video.get_stream_source()
