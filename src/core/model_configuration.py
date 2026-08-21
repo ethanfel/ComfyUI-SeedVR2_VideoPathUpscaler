@@ -181,6 +181,7 @@ def _describe_attention_mode(attention_mode: Optional[str]) -> str:
     
     mode_descriptions = {
         'sdpa': 'PyTorch SDPA',
+        'comfy_kitchen_int8': 'Comfy-Kitchen INT8 Attention',
         'flash_attn_2': 'Flash Attention 2',
         'flash_attn_3': 'Flash Attention 3',
         'sageattn_2': 'SageAttention 2',

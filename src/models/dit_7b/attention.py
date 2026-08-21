@@ -17,6 +17,7 @@ import torch.nn.functional as F
 
 # Import flash/sage attn with automatic fallback from compatibility layer
 from ...optimization.compatibility import (
+    call_comfy_kitchen_int8_varlen,
     call_flash_attn_2_varlen, call_flash_attn_3_varlen,
     call_sage_attn_2_varlen, call_sage_attn_3_varlen
 )
@@ -83,6 +84,7 @@ class FlashAttentionVarlen(nn.Module):
     
     Supported backends:
     - sdpa: PyTorch SDPA (fully compilable, always available)
+    - comfy_kitchen_int8: Comfy-Kitchen INT8 attention (CUDA/ROCm)
     - flash_attn_2: Flash Attention 2 (Ampere+)
     - flash_attn_3: Flash Attention 3 (Hopper+)
     - sageattn_2: SageAttention 2
@@ -96,7 +98,8 @@ class FlashAttentionVarlen(nn.Module):
         Initialize with specified attention backend.
         
         Args:
-            attention_mode: 'sdpa', 'flash_attn_2', 'flash_attn_3', 'sageattn_2', or 'sageattn_3'
+            attention_mode: 'sdpa', 'comfy_kitchen_int8', 'flash_attn_2', 'flash_attn_3',
+                'sageattn_2', or 'sageattn_3'
             compute_dtype: Compute dtype for attention (set by pipeline, defaults to None for auto-detection)
         """
         super().__init__()
@@ -120,7 +123,12 @@ class FlashAttentionVarlen(nn.Module):
             k = k.to(self.compute_dtype)
             v = v.to(self.compute_dtype)
         
-        if self.attention_mode == 'flash_attn_3':
+        if self.attention_mode == 'comfy_kitchen_int8':
+            return call_comfy_kitchen_int8_varlen(
+                q, k, v, cu_seqlens_q, cu_seqlens_k,
+                max_seqlen_q, max_seqlen_k, **kwargs
+            )
+        elif self.attention_mode == 'flash_attn_3':
             return call_flash_attn_3_varlen(
                 q, k, v, cu_seqlens_q, cu_seqlens_k, 
                 max_seqlen_q, max_seqlen_k, **kwargs

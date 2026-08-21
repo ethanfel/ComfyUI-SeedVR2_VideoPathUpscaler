@@ -171,18 +171,42 @@ except (ImportError, AttributeError, OSError):
 
 SAGE_ATTN_AVAILABLE = SAGE_ATTN_2_AVAILABLE or SAGE_ATTN_3_AVAILABLE
 
+# 5. Comfy-Kitchen INT8 attention (CUDA/ROCm, hardware-gated by the package)
+comfy_kitchen_int8_attention = None
+COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE = False
+try:
+    import comfy_kitchen
+    comfy_kitchen_int8_attention = comfy_kitchen.int8_attention
+    COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE = comfy_kitchen.int8_attention_is_available()
+except (ImportError, AttributeError, OSError, RuntimeError):
+    pass
+
 
 def validate_attention_mode(requested_mode: str, debug=None) -> str:
     """
     Validate attention mode availability with automatic fallback.
     
     Args:
-        requested_mode: 'sdpa', 'flash_attn_2', 'flash_attn_3', 'sageattn_2', or 'sageattn_3'
+        requested_mode: 'sdpa', 'comfy_kitchen_int8', 'flash_attn_2', 'flash_attn_3',
+            'sageattn_2', or 'sageattn_3'
         debug: Optional debug instance for logging
         
     Returns:
         Validated mode that is available
     """
+    # Comfy-Kitchen INT8 attention
+    if requested_mode == 'comfy_kitchen_int8':
+        if COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE:
+            return requested_mode
+        error_msg = (
+            "Cannot use 'comfy_kitchen_int8' attention mode on this device.\n"
+            "A recent comfy-kitchen build and a supported CUDA or ROCm GPU are required.\n"
+            "Falling back to PyTorch SDPA."
+        )
+        if debug:
+            debug.log(error_msg, level="WARNING", category="setup", force=True)
+        return 'sdpa'
+
     # Flash Attention 3
     if requested_mode == 'flash_attn_3':
         if FLASH_ATTN_3_AVAILABLE:
@@ -281,6 +305,48 @@ def validate_attention_mode(requested_mode: str, debug=None) -> str:
         return 'sdpa'
     
     return requested_mode
+
+
+@torch._dynamo.disable
+def call_comfy_kitchen_int8_varlen(
+    q, k, v, cu_seqlens_q, cu_seqlens_k,
+    max_seqlen_q=None, max_seqlen_k=None, **kwargs
+):
+    """Adapt SeedVR2's packed variable-length Q/K/V to Comfy-Kitchen INT8 attention."""
+    if not COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE:
+        raise ImportError("Comfy-Kitchen INT8 attention is not available")
+    if kwargs.get('causal', False):
+        raise ValueError("Comfy-Kitchen INT8 attention does not support causal SeedVR2 attention")
+    if kwargs.get('dropout_p', 0.0):
+        raise ValueError("Comfy-Kitchen INT8 attention is inference-only and does not support dropout")
+    if k.shape[0] != v.shape[0]:
+        raise ValueError("cu_seqlens_k does not match the value token count")
+
+    q_indices = cu_seqlens_q[1:-1].long().cpu()
+    k_indices = cu_seqlens_k[1:-1].long().cpu()
+    q_splits = torch.tensor_split(q, q_indices, dim=0)
+    k_splits = torch.tensor_split(k, k_indices, dim=0)
+    v_splits = torch.tensor_split(v, k_indices, dim=0)
+    if not (len(q_splits) == len(k_splits) == len(v_splits)):
+        raise ValueError("Query and key sequence metadata describe different batch sizes")
+
+    output_dtype = q.dtype
+    outputs = []
+    for q_i, k_i, v_i in zip(q_splits, k_splits, v_splits):
+        q_i = q_i.permute(1, 0, 2).unsqueeze(0)
+        k_i = k_i.permute(1, 0, 2).unsqueeze(0)
+        v_i = v_i.permute(1, 0, 2).unsqueeze(0)
+        output_i = comfy_kitchen_int8_attention(
+            q_i,
+            k_i,
+            v_i,
+            scale=kwargs.get('softmax_scale'),
+            attn_mask=None,
+        )
+        outputs.append(output_i.squeeze(0).permute(1, 0, 2))
+
+    output = torch.cat(outputs, dim=0)
+    return output.to(output_dtype) if output.dtype != output_dtype else output
 
 
 @torch._dynamo.disable
@@ -645,22 +711,33 @@ if not os.environ.get("SEEDVR2_OPTIMIZATIONS_LOGGED"):
     os.environ["SEEDVR2_OPTIMIZATIONS_LOGGED"] = "1"
     
     # Build status strings
+    kitchen_status = "✅" if COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE else "❌"
     sage_status = "✅" if SAGE_ATTN_AVAILABLE else "❌"
     flash_status = "✅" if FLASH_ATTN_AVAILABLE else "❌"
     triton_status = "✅" if TRITON_AVAILABLE else "❌"
     
     # Count available optimizations
-    available = [SAGE_ATTN_AVAILABLE, FLASH_ATTN_AVAILABLE, TRITON_AVAILABLE]
+    available = [
+        COMFY_KITCHEN_INT8_ATTENTION_AVAILABLE,
+        SAGE_ATTN_AVAILABLE,
+        FLASH_ATTN_AVAILABLE,
+        TRITON_AVAILABLE,
+    ]
     num_available = sum(available)
-    
-    if num_available == 3:
-        print(f"⚡ SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
+
+    status = (
+        f"Kitchen INT8 {kitchen_status} | SageAttention {sage_status} | "
+        f"Flash Attention {flash_status} | Triton {triton_status}"
+    )
+
+    if num_available == len(available):
+        print(f"⚡ SeedVR2 optimizations check: {status}")
     elif num_available == 0:
-        print(f"⚠️  SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
+        print(f"⚠️  SeedVR2 optimizations check: {status}")
         print("💡 For best performance: pip install sageattention flash-attn triton")
     else:
         icon = "⚡" if num_available >= 2 else "⚠️ "
-        print(f"{icon} SeedVR2 optimizations check: SageAttention {sage_status} | Flash Attention {flash_status} | Triton {triton_status}")
+        print(f"{icon} SeedVR2 optimizations check: {status}")
         
         # Build install suggestions for missing packages
         missing = []
@@ -952,4 +1029,3 @@ class CompatibleDiT(torch.nn.Module):
                 setattr(self.dit_model, name, value)
             else:
                 super().__setattr__(name, value)
-                

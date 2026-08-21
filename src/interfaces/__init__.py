@@ -6,6 +6,7 @@ Central registry for all SeedVR2 nodes
 from comfy_api.latest import ComfyExtension, io
 
 from .video_upscaler import SeedVR2VideoUpscaler
+from .direct_video_upscaler import SeedVR2DirectVideoUpscaler
 from .dit_model_loader import SeedVR2LoadDiTModel
 from .vae_model_loader import SeedVR2LoadVAEModel
 from .torch_compile_settings import SeedVR2TorchCompileSettings
@@ -18,6 +19,7 @@ class SeedVR2Extension(ComfyExtension):
         """Return list of all SeedVR2 nodes"""
         return [
             SeedVR2VideoUpscaler,
+            SeedVR2DirectVideoUpscaler,
             SeedVR2LoadDiTModel,
             SeedVR2LoadVAEModel,
             SeedVR2TorchCompileSettings,
@@ -31,6 +33,7 @@ async def comfy_entrypoint() -> ComfyExtension:
 
 __all__ = [
     'SeedVR2VideoUpscaler',
+    'SeedVR2DirectVideoUpscaler',
     'SeedVR2LoadDiTModel',
     'SeedVR2LoadVAEModel',
     'SeedVR2TorchCompileSettings',

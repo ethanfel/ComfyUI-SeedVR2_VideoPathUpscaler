@@ -36,6 +36,12 @@ We're actively working on improvements and new features. To stay informed:
 
 ## 🚀 Release Notes
 
+**Unreleased**
+
+- **Native ComfyUI quantized models** - Added official SeedVR2 INT8 ConvRot and NVFP4 safetensors, including 3B, 7B, and sharp variants
+- **Comfy-Kitchen INT8 attention** - Added a hardware-gated `comfy_kitchen_int8` backend with automatic SDPA fallback
+- **Direct VIDEO pipeline** - Added a file-backed, memory-bounded video node that returns the upscaled VIDEO and the complete source AUDIO track separately
+
 **2025.12.24 - Version 2.5.24**
 
 - **🍎 Fix: MPS memory leak regression** - Restored MPS cache clearing after VAE encode/decode operations that was accidentally removed during code cleanup in v2.5.23
@@ -306,7 +312,7 @@ We're actively working on improvements and new features. To stay informed:
 
 ### Model Support
 - **Multiple Model Variants**: 3B and 7B parameter models with different precision options
-- **FP16, FP8, and GGUF Quantization**: Choose between full precision (FP16), mixed precision (FP8), or heavily quantized GGUF models for different VRAM requirements
+- **FP16, FP8, INT8 ConvRot, NVFP4, and GGUF Quantization**: Choose the quality, speed, and VRAM tradeoff appropriate for the target GPU
 - **Automatic Model Downloads**: Models are automatically downloaded from HuggingFace on first use
 
 ### Memory Optimization
@@ -319,7 +325,7 @@ We're actively working on improvements and new features. To stay informed:
 - **torch.compile Integration**: Optional 20-40% DiT speedup and 15-25% VAE speedup with PyTorch 2.0+ compilation
 - **Multi-GPU CLI**: Distribute workload across multiple GPUs with automatic temporal overlap blending
 - **Model Caching**: Keep models loaded between generations for single-GPU directory processing or multi-GPU streaming
-- **Flexible Attention Backends**: Choose between PyTorch SDPA (stable, always available), Flash Attention 2/3, or SageAttention 2/3 for faster computation on supported hardware
+- **Flexible Attention Backends**: Choose between PyTorch SDPA, Comfy-Kitchen INT8 attention, Flash Attention 2/3, or SageAttention 2/3
 
 ### Quality Control
 - **Advanced Color Correction**: Five methods including LAB (recommended for highest fidelity), wavelet, wavelet adaptive, HSV, and AdaIN
@@ -327,7 +333,7 @@ We're actively working on improvements and new features. To stay informed:
 - **Configurable Resolution Limits**: Set target and maximum resolutions with automatic aspect ratio preservation
 
 ### Workflow Features
-- **ComfyUI Integration**: Four dedicated nodes for complete control over the upscaling pipeline
+- **ComfyUI Integration**: Five dedicated nodes, including tensor-based and file-backed video paths
 - **Standalone CLI**: Command-line interface for batch processing and automation
 - **Debug Logging**: Comprehensive debug mode with memory tracking, timing information, and processing details
 - **Progress Reporting**: Real-time progress updates during processing
@@ -348,7 +354,7 @@ With the current optimizations (tiling, BlockSwap, GGUF quantization), SeedVR2 c
 - **Python**: 3.12+ (Python 3.12 and 3.13 tested and recommended)
 - **PyTorch**: 2.0+ for torch.compile support (optional but recommended)
 - **Triton**: Required for torch.compile with inductor backend (optional)
-- **Flash Attention / SageAttention**: Flash Attention 2 (Ampere+), Flash Attention 3 (Hopper+), SageAttention 2 or SageAttention 3 (Blackwell) provide faster attention computation on supported hardware (optional, falls back to PyTorch SDPA)
+- **Optional attention kernels**: Comfy-Kitchen INT8 attention, Flash Attention 2/3, and SageAttention 2/3 accelerate attention on supported hardware and fall back to PyTorch SDPA when unavailable
 
 ## 📦 Installation
 
@@ -418,7 +424,7 @@ For reference, here's the original tutorial covering the initial release:
 
 ### Node Setup
 
-SeedVR2 uses a modular node architecture with four specialized nodes:
+SeedVR2 uses a modular node architecture with five specialized nodes:
 
 #### 1. SeedVR2 (Down)Load DiT Model
 
@@ -432,11 +438,15 @@ Configure the DiT (Diffusion Transformer) model for video upscaling.
   - **3B Models**: Faster, lower VRAM requirements
     - `seedvr2_ema_3b_fp16.safetensors`: FP16 (best quality)
     - `seedvr2_ema_3b_fp8_e4m3fn.safetensors`: FP8 8-bit (good quality)
+    - `seedvr2_3b_int8_convrot.safetensors`: Native ComfyUI INT8 ConvRot
+    - `seedvr2_3b_nvfp4.safetensors`: Native ComfyUI NVFP4
     - `seedvr2_ema_3b-Q4_K_M.gguf`: GGUF 4-bit quantized (acceptable quality)
     - `seedvr2_ema_3b-Q8_0.gguf`: GGUF 8-bit quantized (good quality)
   - **7B Models**: Higher quality, higher VRAM requirements
     - `seedvr2_ema_7b_fp16.safetensors`: FP16 (best quality)
     - `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors`: FP8 with last block in FP16 to reduce artifacts (good quality)
+    - `seedvr2_7b_int8_convrot.safetensors`: Native ComfyUI INT8 ConvRot
+    - `seedvr2_7b_nvfp4*.safetensors`: Native ComfyUI NVFP4 and mixed-block variants
     - `seedvr2_ema_7b-Q4_K_M.gguf`: GGUF 4-bit quantized (acceptable quality)
     - `seedvr2_ema_7b_sharp_*`: Sharp variants for enhanced detail
 
@@ -464,6 +474,7 @@ Configure the DiT (Diffusion Transformer) model for video upscaling.
 
 - **attention_mode**: Attention computation backend
   - `sdpa`: PyTorch scaled_dot_product_attention (default, always available)
+  - `comfy_kitchen_int8`: Comfy-Kitchen INT8 Q/K/V attention (supported CUDA/ROCm GPUs)
   - `flash_attn_2`: Flash Attention 2 (Ampere+, requires flash-attn package)
   - `flash_attn_3`: Flash Attention 3 (Hopper+, requires flash-attn with FA3 support)
   - `sageattn_2`: SageAttention 2 (requires sageattention package)
@@ -682,6 +693,18 @@ Main upscaling node that processes video frames using DiT and VAE models.
 - Upscaled video frames with color correction applied
 - Format (RGB/RGBA) matches input
 - Range [0, 1] normalized for ComfyUI compatibility
+
+#### 5. SeedVR2 Direct Video Upscaler
+
+Use this node when the source is a native ComfyUI `VIDEO` and the full frame sequence is too large to pass through the workflow as an `IMAGE` tensor.
+
+- **video**: Connect a native `Load Video` output. File inputs remain file-backed.
+- **chunk_size**: Maximum number of newly decoded frames held in RAM at once.
+- **chunk_overlap**: Raw context frames carried between file chunks; context output is discarded so duration is unchanged.
+- **video output**: File-backed H.264 video suitable for a native or compatible video save node. Audio is not embedded in this intermediate.
+- **audio output**: The complete, unchunked audio for the active source trim window. Connect it to the audio input of the final video save/combine node.
+
+The model is cached internally between chunks even when loader caching is disabled, then released after the direct-video run. This avoids reloading weights for every chunk. The temporary video uses the source frame rate and configurable CRF; RGB is currently supported, while alpha is not preserved by the H.264 intermediate.
 
 ### Typical Workflow Setup
 
@@ -931,7 +954,7 @@ python inference_cli.py media_folder/ \
 
 **Performance Optimization:**
 - `--allow_vram_overflow`: Allow VRAM overflow to system RAM. Prevents OOM but may cause severe slowdown
-- `--attention_mode`: Attention backend: 'sdpa' (default), 'flash_attn_2' (Ampere+), 'flash_attn_3' (Hopper+), 'sageattn_2', or 'sageattn_3' (Blackwell)
+- `--attention_mode`: Attention backend: 'sdpa' (default), 'comfy_kitchen_int8', 'flash_attn_2' (Ampere+), 'flash_attn_3' (Hopper+), 'sageattn_2', or 'sageattn_3' (Blackwell)
 - `--compile_dit`: Enable torch.compile for DiT model (20-40% speedup, requires PyTorch 2.0+ and Triton)
 - `--compile_vae`: Enable torch.compile for VAE model (15-25% speedup, requires PyTorch 2.0+ and Triton)
 - `--compile_backend`: Compilation backend: 'inductor' (full optimization) or 'cudagraphs' (lightweight) (default: inductor)
