@@ -261,7 +261,7 @@ class Debug:
         self.log("────────────────────────", category="none", force=True)
         self.log("Questions? Updates? Watch, star & sponsor if you can!", category="dialogue", force=True)
         self.log("https://www.youtube.com/@AInVFX", category="generation", force=True)
-        self.log("https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler", category="starlove", force=True)
+        self.log("https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler", category="starlove", force=True)
     
     @torch._dynamo.disable  # Skip tracing to avoid time.time() warnings
     def start_timer(self, name: str, force: bool = False) -> None:

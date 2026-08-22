@@ -1,6 +1,6 @@
 [project]
-name = "seedvr2_videoupscaler"
-description = "SeedVR2 official ComfyUI integration: ByteDance-Seed's one-step diffusion-based video/image upscaling with memory-efficient inference"
+name = "seedvr2_video_path_upscaler"
+description = "Companion add-on for the main SeedVR2 ComfyUI nodes, providing a native file-backed video path"
 version = "2.5.24"
 authors = [
     {name = "numz"},
@@ -28,13 +28,13 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler"
+Repository = "https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler"
 Documentation = "https://www.youtube.com/@AInVFX"
-"Bug Tracker" = "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues"
-Forum = "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions"
+"Bug Tracker" = "https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/issues"
+Forum = "https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/discussions"
 
 [tool.comfy]
-PublisherId = "ainvfx"
-DisplayName = "ComfyUI-SeedVR2_VideoUpscaler"
-Icon = "https://raw.githubusercontent.com/numz/ComfyUI-SeedVR2_VideoUpscaler/refs/heads/main/docs/seedvr_logo.png"
+PublisherId = "ethanfel"
+DisplayName = "ComfyUI-SeedVR2_VideoPathUpscaler"
+Icon = "https://raw.githubusercontent.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/refs/heads/main/docs/seedvr_logo.png"
 includes = []

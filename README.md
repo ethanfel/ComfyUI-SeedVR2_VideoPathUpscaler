@@ -1,8 +1,16 @@
-# ComfyUI-SeedVR2_VideoUpscaler
+# ComfyUI-SeedVR2_VideoPathUpscaler
 
-[![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)
+[![View Code](https://img.shields.io/badge/📂_View_Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler)
 
-Official release of [SeedVR2](https://github.com/ByteDance-Seed/SeedVR) for ComfyUI that enables high-quality video and image upscaling.
+A companion add-on for the main [ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) node package. It adds a native, file-backed ComfyUI `VIDEO` path and hardware-aware automatic configuration without replacing or duplicating the main package's nodes.
+
+> [!IMPORTANT]
+> Install this add-on alongside the main SeedVR2 node package. The main package continues to provide the standard model loaders, tensor upscaler, and compile-settings nodes; this add-on contributes only the two collision-free **SeedVR2 Video Path** nodes.
+
+| Package | Public ComfyUI nodes |
+|---|---|
+| [Main SeedVR2 package](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) | DiT/VAE loaders, tensor upscaler, and torch-compile settings |
+| This Video Path add-on | Native file-backed video upscaler and hardware auto-configurator |
 
 Can run as **Multi-GPU standalone CLI** too, see [🖥️ Run as Standalone](#-run-as-standalone-cli) section.
 
@@ -30,8 +38,8 @@ Can run as **Multi-GPU standalone CLI** too, see [🖥️ Run as Standalone](#-r
 
 We're actively working on improvements and new features. To stay informed:
 
-- **📌 Track Active Development**: Visit [Issues](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues) to see active development, report bugs, and request new features
-- **💬 Join the Community**: Learn from others, share your workflows, and get help in the [Discussions](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions)
+- **📌 Track Active Development**: Visit [Issues](https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/issues) to see active development, report bugs, and request new features
+- **💬 Join the Community**: Learn from others, share your workflows, and get help in the [Discussions](https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/discussions)
 - **🔮 Next Model Survey**: We're looking for community input on the next open-source super-powerful generic restoration model. Share your suggestions in [Issue #164](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues/164)
 
 ## 🚀 Release Notes
@@ -42,7 +50,7 @@ We're actively working on improvements and new features. To stay informed:
 - **Comfy-Kitchen INT8 attention** - Added a hardware-gated `comfy_kitchen_int8` backend with automatic SDPA fallback
 - **Video Path Upscaler** - Added a file-backed, memory-bounded video node that returns the upscaled VIDEO and the complete source AUDIO track separately
 - **Video Path Auto Configurator** - Added runtime GPU/VRAM detection for model precision, attention, batching, tiling, offload, caching, and direct-video chunk settings
-- **Collision-free node registry** - This add-on now registers only its two uniquely named video-path nodes; the original SeedVR2 tensor, loader, and compile nodes can be installed separately without duplicate node IDs
+- **Collision-free node registry** - This add-on registers only its two uniquely named video-path nodes, while the main SeedVR2 package owns the tensor, loader, and compile nodes
 - **GPU-resident model cache** - `cache_model` with `offload_device=none` now keeps models on the inference GPU for high-VRAM systems
 
 **2025.12.24 - Version 2.5.24**
@@ -354,6 +362,7 @@ With the current optimizations (tiling, BlockSwap, GGUF quantization), SeedVR2 c
 ### Software
 
 - **ComfyUI**: Latest version recommended
+- **Main SeedVR2 nodes**: Install [ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) alongside this companion add-on
 - **Python**: 3.12+ (Python 3.12 and 3.13 tested and recommended)
 - **PyTorch**: 2.0+ for torch.compile support (optional but recommended)
 - **Triton**: Required for torch.compile with inductor backend (optional)
@@ -361,30 +370,34 @@ With the current optimizations (tiling, BlockSwap, GGUF quantization), SeedVR2 c
 
 ## 📦 Installation
 
-### Option 1: ComfyUI Manager (Recommended)
+### Install the Main SeedVR2 Package First
+
+This repository extends the main SeedVR2 nodes; it is not their replacement. Install [ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) through ComfyUI Manager or its documented manual installation, then install this add-on using one of the options below. The node IDs are intentionally distinct, so both packages can be enabled at the same time.
+
+### Option 1: ComfyUI Manager (After Registry Publication)
 
 1. Open ComfyUI Manager in your ComfyUI interface
 2. Click "Custom Nodes Manager"
-3. Search for "ComfyUI-SeedVR2_VideoUpscaler"
+3. Search for "ComfyUI-SeedVR2_VideoPathUpscaler"
 4. Click "Install" and restart ComfyUI
 
-**Registry Link**: [ComfyUI Registry - SeedVR2 Video Upscaler](https://registry.comfy.org/nodes/seedvr2_videoupscaler)
+**Repository**: [ComfyUI-SeedVR2_VideoPathUpscaler](https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler)
 
-### Option 2: Manual Installation
+### Option 2: Manual Installation (Recommended)
 
 1. **Clone the repository** into your ComfyUI custom nodes directory:
 ```bash
 cd ComfyUI
-git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git custom_nodes/seedvr2_videoupscaler
+git clone https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler.git custom_nodes/seedvr2_video_path_upscaler
 ```
 
 2. **Install dependencies using standalone Python**:
 ```bash
 # Install requirements (from same ComfyUI directory)
 # Windows:
-.venv\Scripts\python.exe -m pip install -r custom_nodes\seedvr2_videoupscaler\requirements.txt
+.venv\Scripts\python.exe -m pip install -r custom_nodes\seedvr2_video_path_upscaler\requirements.txt
 # Linux/macOS:
-.venv/bin/python -m pip install -r custom_nodes/seedvr2_videoupscaler/requirements.txt
+.venv/bin/python -m pip install -r custom_nodes/seedvr2_video_path_upscaler/requirements.txt
 ```
 
 3. **Restart ComfyUI**
@@ -427,14 +440,14 @@ For reference, here's the original tutorial covering the initial release:
 
 ### Node Setup
 
-This add-on registers only two public nodes, both under the **SeedVR2 Video Path** category. Their IDs are namespaced with `SeedVR2VideoPath` so they can coexist with the original SeedVR2 package.
+This companion add-on registers only two public nodes, both under the **SeedVR2 Video Path** category. Their IDs are namespaced with `SeedVR2VideoPath` so they can coexist with the main SeedVR2 package.
 
-The tensor upscaler remains an internal processing engine. The original DiT loader, VAE loader, tensor upscaler, and torch-compile settings nodes are not registered by this add-on. The `SEEDVR2_DIT` and `SEEDVR2_VAE` socket types remain unchanged, so the video-path upscaler can still accept configurations from the original loaders.
+The tensor upscaler remains an internal processing engine for the native video path. The main package owns the public DiT loader, VAE loader, tensor upscaler, and torch-compile settings nodes, so this add-on does not register copies of them. The `SEEDVR2_DIT` and `SEEDVR2_VAE` socket types remain compatible between both packages.
 
 <details>
-<summary>Legacy original-node configuration reference</summary>
+<summary>Main SeedVR2 node configuration reference</summary>
 
-The following four nodes belong to the original SeedVR2 package and are documented here only as a compatibility reference.
+The following four nodes belong to the main SeedVR2 package and are documented here as a compatibility reference.
 
 #### 1. SeedVR2 (Down)Load DiT Model
 
@@ -753,12 +766,12 @@ Load Video ─┬─→ SeedVR2 Video Path Auto Configurator ─┬─ dit ─�
                                                      Video Path Upscaler ─→ Save Video
 ```
 
-For manual control, connect the original package's `SEEDVR2_DIT` and `SEEDVR2_VAE` loader outputs directly to **SeedVR2 Video Path Upscaler** and leave `auto_settings` disconnected.
+For manual control, connect the main package's `SEEDVR2_DIT` and `SEEDVR2_VAE` loader outputs directly to **SeedVR2 Video Path Upscaler** and leave `auto_settings` disconnected.
 
 <details>
-<summary>Legacy tensor-workflow examples</summary>
+<summary>Main-package tensor workflow examples</summary>
 
-These examples require the original SeedVR2 nodes, which this add-on no longer registers.
+These examples use the main SeedVR2 nodes, which are intentionally not duplicated by this add-on.
 
 ### Original Workflow Setup
 
@@ -850,9 +863,9 @@ cd ComfyUI
 
 # Run the CLI using standalone Python (display help message)
 # Windows:
-.venv\Scripts\python.exe custom_nodes\seedvr2_videoupscaler\inference_cli.py --help
+.venv\Scripts\python.exe custom_nodes\seedvr2_video_path_upscaler\inference_cli.py --help
 # Linux/macOS:
-.venv/bin/python custom_nodes/seedvr2_videoupscaler/inference_cli.py --help
+.venv/bin/python custom_nodes/seedvr2_video_path_upscaler/inference_cli.py --help
 ```
 
 **Skip to [Command Line Usage](#command-line-usage) below.**
@@ -872,8 +885,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 2. **Clone the repository**:
 ```bash
-git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git seedvr2_videoupscaler
-cd seedvr2_videoupscaler
+git clone https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler.git seedvr2_video_path_upscaler
+cd seedvr2_video_path_upscaler
 ```
 
 3. **Create virtual environment and install dependencies**:
@@ -1117,8 +1130,8 @@ For detailed contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Get Help:**
 - YouTube: [AInVFX Channel](https://www.youtube.com/@AInVFX)
-- GitHub [Issues](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/issues): For bug reports and feature requests
-- GitHub [Discussions](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions): For questions and community support
+- GitHub [Issues](https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/issues): For bug reports and feature requests
+- GitHub [Discussions](https://github.com/ethanfel/ComfyUI-SeedVR2_VideoPathUpscaler/discussions): For questions and community support
 - Discord: adrientoupet & NumZ#7184
 
 ## 🙏 Credits
