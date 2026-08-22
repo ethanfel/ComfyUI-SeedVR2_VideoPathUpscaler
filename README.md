@@ -40,8 +40,9 @@ We're actively working on improvements and new features. To stay informed:
 
 - **Native ComfyUI quantized models** - Added official SeedVR2 INT8 ConvRot and NVFP4 safetensors, including 3B, 7B, and sharp variants
 - **Comfy-Kitchen INT8 attention** - Added a hardware-gated `comfy_kitchen_int8` backend with automatic SDPA fallback
-- **Direct VIDEO pipeline** - Added a file-backed, memory-bounded video node that returns the upscaled VIDEO and the complete source AUDIO track separately
-- **Hardware Auto Configurator** - Added runtime GPU/VRAM detection for model precision, attention, batching, tiling, offload, caching, and direct-video chunk settings
+- **Video Path Upscaler** - Added a file-backed, memory-bounded video node that returns the upscaled VIDEO and the complete source AUDIO track separately
+- **Video Path Auto Configurator** - Added runtime GPU/VRAM detection for model precision, attention, batching, tiling, offload, caching, and direct-video chunk settings
+- **Collision-free node registry** - This add-on now registers only its two uniquely named video-path nodes; the original SeedVR2 tensor, loader, and compile nodes can be installed separately without duplicate node IDs
 - **GPU-resident model cache** - `cache_model` with `offload_device=none` now keeps models on the inference GPU for high-VRAM systems
 
 **2025.12.24 - Version 2.5.24**
@@ -335,7 +336,7 @@ We're actively working on improvements and new features. To stay informed:
 - **Configurable Resolution Limits**: Set target and maximum resolutions with automatic aspect ratio preservation
 
 ### Workflow Features
-- **ComfyUI Integration**: Six dedicated nodes, including tensor-based and file-backed video paths plus hardware auto-configuration
+- **ComfyUI Integration**: Two dedicated, collision-free native-video nodes: the file-backed upscaler and hardware auto-configurator
 - **Standalone CLI**: Command-line interface for batch processing and automation
 - **Debug Logging**: Comprehensive debug mode with memory tracking, timing information, and processing details
 - **Progress Reporting**: Real-time progress updates during processing
@@ -402,7 +403,7 @@ You can also manually download models from:
 
 #### Latest Version Deep Dive (Recommended)
 
-Complete walkthrough of version 2.5 by Adrien from [AInVFX](https://www.youtube.com/@AInVFX), covering the new 4-node architecture, GGUF support, memory optimizations, and production workflows:
+Complete walkthrough of the original version 2.5 node set by Adrien from [AInVFX](https://www.youtube.com/@AInVFX), covering GGUF support, memory optimizations, and production workflows:
 
 [![SeedVR2 v2.5 Deep Dive Tutorial](https://img.youtube.com/vi/MBtWYXq_r60/maxresdefault.jpg)](https://youtu.be/MBtWYXq_r60)
 
@@ -426,7 +427,14 @@ For reference, here's the original tutorial covering the initial release:
 
 ### Node Setup
 
-SeedVR2 uses a modular node architecture with six specialized nodes:
+This add-on registers only two public nodes, both under the **SeedVR2 Video Path** category. Their IDs are namespaced with `SeedVR2VideoPath` so they can coexist with the original SeedVR2 package.
+
+The tensor upscaler remains an internal processing engine. The original DiT loader, VAE loader, tensor upscaler, and torch-compile settings nodes are not registered by this add-on. The `SEEDVR2_DIT` and `SEEDVR2_VAE` socket types remain unchanged, so the video-path upscaler can still accept configurations from the original loaders.
+
+<details>
+<summary>Legacy original-node configuration reference</summary>
+
+The following four nodes belong to the original SeedVR2 package and are documented here only as a compatibility reference.
 
 #### 1. SeedVR2 (Down)Load DiT Model
 
@@ -697,7 +705,9 @@ Main upscaling node that processes video frames using DiT and VAE models.
 - Format (RGB/RGBA) matches input
 - Range [0, 1] normalized for ComfyUI compatibility
 
-#### 5. SeedVR2 Direct Video Upscaler
+</details>
+
+#### 1. SeedVR2 Video Path Upscaler
 
 Use this node when the source is a native ComfyUI `VIDEO` and the full frame sequence is too large to pass through the workflow as an `IMAGE` tensor.
 
@@ -709,9 +719,9 @@ Use this node when the source is a native ComfyUI `VIDEO` and the full frame seq
 
 The model is cached internally between chunks even when loader caching is disabled, then released after the direct-video run. Configurations that explicitly enable model caching can instead retain the models across runs, including directly on high-VRAM GPUs. The temporary video uses the source frame rate and configurable CRF; RGB is currently supported, while alpha is not preserved by the H.264 intermediate.
 
-#### 6. SeedVR2 Auto Configurator
+#### 2. SeedVR2 Video Path Auto Configurator
 
-This node detects the selected GPU at execution time and emits complete `dit`, `vae`, and `auto_settings` configurations. Connect those three outputs to either SeedVR2 upscaler. Connecting the optional native `VIDEO` input also lets it disable unnecessary chunking for short clips.
+This node detects the selected GPU at execution time and emits complete `dit`, `vae`, and `auto_settings` configurations. Connect those three outputs to the SeedVR2 Video Path Upscaler. Connecting the optional native `VIDEO` input also lets it disable unnecessary chunking for short clips.
 
 - **balanced**: Favors 7B quality while preserving activation headroom.
 - **maximum_quality**: Selects the highest-fidelity model that safely fits.
@@ -735,15 +745,22 @@ These are starting points, not fixed hardware guarantees: free VRAM at execution
 **Automatic direct-video workflow:**
 
 ```text
-Load Video ─┬─→ SeedVR2 Auto Configurator ─┬─ dit ────────────┐
-            │                              ├─ vae ────────────┤
-            │                              └─ auto_settings ──┤
-            └──────────────────────────────── video ──────────┤
-                                                              ↓
-                                              Direct Video Upscaler
+Load Video ─┬─→ SeedVR2 Video Path Auto Configurator ─┬─ dit ────────────┐
+            │                                         ├─ vae ────────────┤
+            │                                         └─ auto_settings ──┤
+            └─────────────────────────────────────────── video ──────────┤
+                                                                         ↓
+                                                     Video Path Upscaler ─→ Save Video
 ```
 
-### Typical Workflow Setup
+For manual control, connect the original package's `SEEDVR2_DIT` and `SEEDVR2_VAE` loader outputs directly to **SeedVR2 Video Path Upscaler** and leave `auto_settings` disconnected.
+
+<details>
+<summary>Legacy tensor-workflow examples</summary>
+
+These examples require the original SeedVR2 nodes, which this add-on no longer registers.
+
+### Original Workflow Setup
 
 **Basic Workflow (High VRAM - 24GB+)**:
 ```
@@ -812,6 +829,8 @@ SeedVR2 Video Upscaler
     ↓
 Save Video/Frames
 ```
+
+</details>
 
 ## 🖥️ Run as Standalone (CLI)
 

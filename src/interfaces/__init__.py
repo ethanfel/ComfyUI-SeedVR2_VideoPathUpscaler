@@ -1,45 +1,30 @@
-"""
-SeedVR2 ComfyUI Nodes
-Central registry for all SeedVR2 nodes
-"""
+"""Public ComfyUI registry for the SeedVR2 native-video path."""
 
 from comfy_api.latest import ComfyExtension, io
 
-from .video_upscaler import SeedVR2VideoUpscaler
-from .direct_video_upscaler import SeedVR2DirectVideoUpscaler
-from .auto_configurator import SeedVR2AutoConfigurator
-from .dit_model_loader import SeedVR2LoadDiTModel
-from .vae_model_loader import SeedVR2LoadVAEModel
-from .torch_compile_settings import SeedVR2TorchCompileSettings
+from .auto_configurator import SeedVR2VideoPathAutoConfigurator
+from .direct_video_upscaler import SeedVR2VideoPathUpscaler
 
 
-class SeedVR2Extension(ComfyExtension):
-    """SeedVR2 ComfyUI Extension"""
-    
+class SeedVR2VideoPathExtension(ComfyExtension):
+    """SeedVR2 native-video extension with collision-free public node IDs."""
+
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
-        """Return list of all SeedVR2 nodes"""
+        """Return only the nodes owned by this native-video add-on."""
         return [
-            SeedVR2VideoUpscaler,
-            SeedVR2DirectVideoUpscaler,
-            SeedVR2AutoConfigurator,
-            SeedVR2LoadDiTModel,
-            SeedVR2LoadVAEModel,
-            SeedVR2TorchCompileSettings,
+            SeedVR2VideoPathUpscaler,
+            SeedVR2VideoPathAutoConfigurator,
         ]
 
 
 async def comfy_entrypoint() -> ComfyExtension:
-    """ComfyUI V3 entry point"""
-    return SeedVR2Extension()
+    """Return the ComfyUI V3 extension entry point."""
+    return SeedVR2VideoPathExtension()
 
 
 __all__ = [
-    'SeedVR2VideoUpscaler',
-    'SeedVR2DirectVideoUpscaler',
-    'SeedVR2AutoConfigurator',
-    'SeedVR2LoadDiTModel',
-    'SeedVR2LoadVAEModel',
-    'SeedVR2TorchCompileSettings',
-    'SeedVR2Extension',
-    'comfy_entrypoint',
+    "SeedVR2VideoPathUpscaler",
+    "SeedVR2VideoPathAutoConfigurator",
+    "SeedVR2VideoPathExtension",
+    "comfy_entrypoint",
 ]

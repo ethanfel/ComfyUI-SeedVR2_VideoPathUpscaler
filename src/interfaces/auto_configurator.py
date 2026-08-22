@@ -110,20 +110,20 @@ def _reliable_video_frame_count(video: Input.Video) -> Optional[int]:
     return reported_count
 
 
-class SeedVR2AutoConfigurator(io.ComfyNode):
+class SeedVR2VideoPathAutoConfigurator(io.ComfyNode):
     """Detect hardware and emit complete model plus runtime configurations."""
 
     @classmethod
     def define_schema(cls) -> io.Schema:
         devices = ["auto", *get_device_list()]
         return io.Schema(
-            node_id="SeedVR2AutoConfigurator",
-            display_name="SeedVR2 Auto Configurator",
-            category="SEEDVR2",
+            node_id="SeedVR2VideoPathAutoConfigurator",
+            display_name="SeedVR2 Video Path Auto Configurator",
+            category="SeedVR2 Video Path",
             description=(
                 "Detects the selected GPU and configures model precision, attention, batching, "
                 "tiling, model residency, tensor offload, and direct-video chunking. Connect all "
-                "three configuration outputs to a SeedVR2 upscaler."
+                "three configuration outputs to the SeedVR2 Video Path Upscaler."
             ),
             inputs=[
                 io.Combo.Input("device", options=devices, default="auto"),
@@ -233,4 +233,4 @@ class SeedVR2AutoConfigurator(io.ComfyNode):
         return io.NodeOutput(dit, vae, settings, report)
 
 
-__all__ = ["SeedVR2AutoConfigurator"]
+__all__ = ["SeedVR2VideoPathAutoConfigurator"]

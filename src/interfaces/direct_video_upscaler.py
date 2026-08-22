@@ -273,15 +273,15 @@ class _VideoWriter:
         self.stream = None
 
 
-class SeedVR2DirectVideoUpscaler(io.ComfyNode):
+class SeedVR2VideoPathUpscaler(io.ComfyNode):
     """Stream a native VIDEO through SeedVR2 and return a file-backed VIDEO plus full AUDIO."""
 
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="SeedVR2DirectVideoUpscaler",
-            display_name=f"SeedVR2 Direct Video Upscaler (v{__version__})",
-            category="SEEDVR2",
+            node_id="SeedVR2VideoPathUpscaler",
+            display_name=f"SeedVR2 Video Path Upscaler (v{__version__})",
+            category="SeedVR2 Video Path",
             description=(
                 "Upscales a native ComfyUI VIDEO in bounded chunks. The complete frame sequence "
                 "never becomes an IMAGE tensor in the workflow; the output remains file-backed. "
@@ -416,7 +416,7 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
                     "auto_settings",
                     optional=True,
                     tooltip=(
-                        "Optional runtime settings from SeedVR2 Auto Configurator. When connected, "
+                        "Optional runtime settings from SeedVR2 Video Path Auto Configurator. When connected, "
                         "the configurator overrides the corresponding controls above."
                     ),
                 ),
@@ -564,7 +564,7 @@ class SeedVR2DirectVideoUpscaler(io.ComfyNode):
 
 
 __all__ = [
-    "SeedVR2DirectVideoUpscaler",
+    "SeedVR2VideoPathUpscaler",
     "extract_full_audio",
     "mux_audio_into_video",
     "stream_video_frame_chunks",
